@@ -122,8 +122,8 @@ const run = async (
     database: is_sqlite ? "SQLite" : "PostgreSQL",
   };
   const { tableList, ast } = parser.parse(sql, opt);
-  console.log(ast[0].where);
-  console.log(tableList);
+  //console.log(ast[0].where);
+  //console.log(tableList);
 
   if (ast.length !== 1 || ast[0].type !== "select")
     throw new Error("SQL statement must be a select");
@@ -156,9 +156,10 @@ const run = async (
   }
   const client = is_sqlite ? db : await db.getClient();
   await client.query(`BEGIN;`);
-  await client.query(`SET LOCAL search_path TO "${db.getTenantSchema()}";`);
-  await client.query(`SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY;`);
-
+  if (!is_sqlite) {
+    await client.query(`SET LOCAL search_path TO "${db.getTenantSchema()}";`);
+    await client.query(`SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY;`);
+  }
   const qres = await client.query(parser.sqlify(ast, opt), phValues);
 
   await client.query(`ROLLBACK`);
