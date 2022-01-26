@@ -118,28 +118,49 @@ const run = async (
   readState(state, fields, extraArgs.req);
 
   const is_sqlite = db.isSQLite;
-
-  const { tableList, columnList, ast } = parser.parse(sql, {
-    database: "PostgreSQL",
-  });
-  console.log(ast);
+  const opt = {
+    database: is_sqlite ? "SQLite" : "PostgreSQL",
+  };
+  const { tableList, ast } = parser.parse(sql, opt);
+  console.log(ast[0].where);
   console.log(tableList);
-  for (stmt of ast) {
-    if (stmt.type !== "select")
-      throw new Error("SQL statement must be a select");
-  }
 
-  for (tableAccess of tableList) {
+  if (ast.length !== 1 || ast[0].type !== "select")
+    throw new Error("SQL statement must be a select");
+
+  for (const tableAccess of tableList) {
     const [stmt, schema, tbl] = tableAccess.split("::");
     if (schema !== "null")
       throw new Error("SQL statement cannot access a different schema");
+  }
+  let phIndex = 1;
+  const phValues = [];
+  for (const k of Object.keys(state)) {
+    const newClause = {
+      type: "binary_expr",
+      operator: "=",
+      left: { type: "column_ref", table: null, column: db.sqlsanitize(k) },
+      right: { type: "number", value: "$" + phIndex },
+    };
+    phIndex += 1;
+    phValues.push(state[k]);
+    if (!ast[0].where) ast[0].where = newClause;
+    else {
+      ast[0].where = {
+        type: "binary_expr",
+        operator: "AND",
+        left: ast[0].where,
+        right: newClause,
+      };
+    }
   }
   const client = is_sqlite ? db : await db.getClient();
   await client.query(`BEGIN;`);
   await client.query(`SET LOCAL search_path TO "${db.getTenantSchema()}";`);
   await client.query(`SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY;`);
 
-  const qres = await client.query(sql);
+  const qres = await client.query(parser.sqlify(ast, opt), phValues);
+
   await client.query(`ROLLBACK`);
 
   if (!is_sqlite) client.release(true);
