@@ -1,6 +1,7 @@
 const db = require("@saltcorn/data/db");
 const Form = require("@saltcorn/data/models/form");
 const Field = require("@saltcorn/data/models/field");
+const Table = require("@saltcorn/data/models/table");
 const FieldRepeat = require("@saltcorn/data/models/fieldrepeat");
 const Workflow = require("@saltcorn/data/models/workflow");
 const { eval_expression } = require("@saltcorn/data/models/expression");
@@ -17,6 +18,7 @@ const {
   text_attr,
 } = require("@saltcorn/markup/tags");
 const { mkTable } = require("@saltcorn/markup");
+const { readState } = require("@saltcorn/data/plugin-helper");
 
 const { Parser } = require("node-sql-parser");
 const parser = new Parser();
@@ -122,6 +124,11 @@ const run = async (
   });
   console.log(ast);
   console.log(tableList);
+  for (stmt of ast) {
+    if (stmt.type !== "select")
+      throw new Error("SQL statement must be a select");
+  }
+
   for (tableAccess of tableList) {
     const [stmt, schema, tbl] = tableAccess.split("::");
     if (schema !== "null")
