@@ -106,7 +106,15 @@ const run = async (
   state,
   extraArgs
 ) => {
-  const qres = await db.query(sql);
+  const is_sqlite = db.isSQLite;
+
+  const client = is_sqlite ? db : await db.getClient();
+  await client.query(`SET search_path TO "${db.getTenantSchema()}";`);
+  await client.query(`SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY;`);
+
+  const qres = await client.query(sql);
+  if (!is_sqlite) client.release(true);
+
   //console.log(qres);
   const tfields = skip_cfg_fields
     ? qres.fields.map((field) => ({ label: field.name, key: field.name }))
