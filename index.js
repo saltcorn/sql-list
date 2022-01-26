@@ -1,6 +1,9 @@
 const db = require("@saltcorn/data/db");
 const Form = require("@saltcorn/data/models/form");
+const Field = require("@saltcorn/data/models/field");
+const FieldRepeat = require("@saltcorn/data/models/fieldrepeat");
 const Workflow = require("@saltcorn/data/models/workflow");
+const { eval_expression } = require("@saltcorn/data/models/expression");
 const {
   text,
   div,
@@ -29,6 +32,61 @@ const configuration_workflow = () =>
                 input_type: "code",
                 attributes: { mode: "text/x-sql" },
               },
+              {
+                name: "skip_cfg_fields",
+                label: "Skip configured fields",
+                type: "Bool",
+                sublabel:
+                  "Show the raw columns from the query instead of the columns defined below",
+              },
+              new FieldRepeat({
+                name: "columns",
+                fields: [
+                  {
+                    name: "type",
+                    label: "Type",
+                    type: "String",
+                    required: true,
+                    attributes: {
+                      //TODO omit when no options
+                      options: ["Query column", "Link formula"],
+                    },
+                  },
+                  {
+                    name: "query_name",
+                    label: "Column name",
+                    sublabel: "This should match the column name exactly",
+                    type: "String",
+                    showIf: { type: "Query column" },
+                  },
+                  {
+                    name: "query_transform",
+                    label: "Transform",
+                    type: "String",
+                    attributes: { options: ["JSON stringify"] },
+                    showIf: { type: "Query column" },
+                  },
+                  {
+                    name: "link_text",
+                    label: "Link text formula",
+                    type: "String",
+                    required: true,
+                    showIf: { type: "Link formula" },
+                  },
+                  {
+                    name: "link_url",
+                    label: "Link URL formula",
+                    type: "String",
+                    required: true,
+                    showIf: { type: "Link formula" },
+                  },
+                  {
+                    name: "header_label",
+                    label: "Header label",
+                    type: "String",
+                  },
+                ],
+              }),
             ],
           });
         },
@@ -38,13 +96,50 @@ const configuration_workflow = () =>
 
 const get_state_fields = () => [];
 
-const run = async (table_id, viewname, { sql }, state, extraArgs) => {
+const do_transform = (xform, nm) =>
+  xform === "JSON stringify" ? (r) => JSON.stringify(r[nm]) : nm;
+
+const run = async (
+  table_id,
+  viewname,
+  { sql, skip_cfg_fields, columns },
+  state,
+  extraArgs
+) => {
   const qres = await db.query(sql);
   //console.log(qres);
-  return mkTable(
-    qres.fields.map((field) => ({ label: field.name, key: field.name })),
-    qres.rows
-  );
+  const tfields = skip_cfg_fields
+    ? qres.fields.map((field) => ({ label: field.name, key: field.name }))
+    : columns.map((col) =>
+        col.type === "Query column"
+          ? {
+              label: col.header_label || col.query_name,
+              key: col.query_transform
+                ? do_transform(col.query_transform, col.query_name)
+                : col.query_name,
+            }
+          : {
+              label: col.header_label,
+              key(r) {
+                let txt, href;
+                try {
+                  txt = eval_expression(col.link_text, r);
+                } catch (error) {
+                  error.message = `Error in formula ${col.link_text} for link text:\n${error.message}`;
+                  throw error;
+                }
+                try {
+                  href = eval_expression(col.link_url, r);
+                } catch (error) {
+                  error.message = `Error in formula ${col.link_url} for link URL:\n${error.message}`;
+                  throw error;
+                }
+
+                return a({ href }, txt);
+              },
+            }
+      );
+  return mkTable(tfields, qres.rows);
 };
 
 module.exports = {
