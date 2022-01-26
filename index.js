@@ -18,6 +18,9 @@ const {
 } = require("@saltcorn/markup/tags");
 const { mkTable } = require("@saltcorn/markup");
 
+const { Parser } = require("node-sql-parser");
+const parser = new Parser();
+
 const configuration_workflow = () =>
   new Workflow({
     steps: [
@@ -106,13 +109,32 @@ const run = async (
   state,
   extraArgs
 ) => {
+  const table = await Table.findOne(
+    typeof table_id === "string" ? { name: table_id } : { id: table_id }
+  );
+  const fields = await table.getFields();
+  readState(state, fields, extraArgs.req);
+
   const is_sqlite = db.isSQLite;
 
+  const { tableList, columnList, ast } = parser.parse(sql, {
+    database: "PostgreSQL",
+  });
+  console.log(ast);
+  console.log(tableList);
+  for (tableAccess of tableList) {
+    const [stmt, schema, tbl] = tableAccess.split("::");
+    if (schema !== "null")
+      throw new Error("SQL statement cannot access a different schema");
+  }
   const client = is_sqlite ? db : await db.getClient();
-  await client.query(`SET search_path TO "${db.getTenantSchema()}";`);
+  await client.query(`BEGIN;`);
+  await client.query(`SET LOCAL search_path TO "${db.getTenantSchema()}";`);
   await client.query(`SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY;`);
 
   const qres = await client.query(sql);
+  await client.query(`ROLLBACK`);
+
   if (!is_sqlite) client.release(true);
 
   //console.log(qres);
@@ -158,7 +180,6 @@ module.exports = {
       name: "ListSQL",
       display_state_form: false,
       get_state_fields,
-      tableless: true,
       configuration_workflow,
       run,
     },
