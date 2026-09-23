@@ -160,11 +160,14 @@ const run = async (
     await client.query(`SET LOCAL search_path TO "${db.getTenantSchema()}";`);
     await client.query(`SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY;`);
   }
-  const qres = await client.query(parser.sqlify(ast, opt), phValues);
-
-  await client.query(`ROLLBACK`);
-
-  if (!is_sqlite) client.release(true);
+  let qres
+  try {
+     qres = await client.query(parser.sqlify(ast, opt), phValues);
+  } finally {
+     await client.query(`ROLLBACK`);
+    if (!is_sqlite) client.release(true);
+  }
+ 
 
   //console.log(qres);
   const tfields = skip_cfg_fields
